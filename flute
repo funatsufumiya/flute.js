@@ -15,7 +15,10 @@ var fs = require('fs'),
 	coffee = require('coffee-script'),
 	uglify = require('uglify-js'),
 	less = require('less'),
-	yuicompressor = require('yuicompressor');
+	yuicompressor = require('yuicompressor'),
+	htmlminifier = require('html-minifier'),
+	gm = require('gm'),
+	exec = require('child_process').exec;
 
 // Fundamentals =============================
 
@@ -92,13 +95,21 @@ var fileinfo = function(s,root){
 	var subext = '';
 	var name = '';
 	if(has_ext){
-		ext = base.replace(/.*\.(.{0,6})$/, '$1');
-		subext = base.replace(/.*\.(.{0,6})\.(.{0,6})$/, '$1');
-		if(subext.indexOf('.') < 0){
+		ext = base.split('.')[1];
+		extlen = ext.length+1;
+		sub_test = base.split('.');
+		name = base.slice(0,-extlen);
+
+		if(sub_test.length == 3){
+			subext = sub_test[1];
+			ext = sub_test[2];
+			extlen = ext.length+1;
+			name = sub_test[0];
+		}else{
 			subext = '';
 		}
-		extlen = ext.length+1;
-		name = base.slice(0,-extlen);
+		
+		
 	}
 	var parent_path;
 	if(is_win){
@@ -163,15 +174,16 @@ var fl_compile = function(filename){
 			case 'sass':
 			case 'scss':
 			case 'less':
-			case 'js':
-			case 'css':
-			case 'png':
-			case 'jpg':
-			case 'jpeg':
-			case 'gif':
 			case 'html':
-				var data = fs.readFileSync(filename,'utf8');
-				content = data.toString('utf8');
+			case 'htm':
+				try{
+					var data = fs.readFileSync(filename,'utf8');
+					content = data.toString('utf8');
+				}catch(e){
+					showError(e);
+					return;
+				}
+
 				break;
 		}
 
@@ -326,7 +338,6 @@ var fl_compile = function(filename){
 				less.render(content, function (e, _css) {
 					var target_css = www+sp+fi.relative+sp+fi.name+'.css';
 				    createDirs(fi);
-
 				    fs.writeFileSync(target_css,_css);
 
 				    yuicompressor.compress(target_css, {
@@ -346,22 +357,96 @@ var fl_compile = function(filename){
 				});
 				break;
 			case 'js':
+				try{
+					var target = www+sp+fi.relative+sp+fi.base;
+					target = target.replace('//','/');
+
+					cpFileSync(filename,target);
+					var js = uglify.minify(target).code;
+					fs.writeFileSync(target,js);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+				}catch(e){
+					showError(e,fi);
+					return;
+				}
 				break;
 			case 'css':
 				break;
-			case 'png':
-				break;
 			case 'jpg':
 			case 'jpeg':
+				try{
+					var target = www+sp+fi.relative+sp+fi.name+'.'+fi.ext;
+					target = target.replace('//','/');
+
+					cpFileSync(filename,target);
+
+					console.log(blue+'compressing... '+yellow+fi.relative+sp+fi.base+reset);
+					var _ = exec('jpegoptim -m80 -q '+target, function(err, stdout, stderr) {
+						if (err) {
+							showError(err,fi);
+							return;
+						} else {
+							console.log(blue+'compressed: '+yellow+fi.relative+sp+fi.base+reset);
+						}
+					});
+				}catch(e){
+					showError(err,fi);
+					return;
+				}
 				break;
 			case 'gif':
+			case 'png':
+				try{
+					var target = www+sp+fi.relative+sp+fi.name+'.'+fi.ext;
+					target = target.replace('//','/');
+
+					cpFileSync(filename,target);
+
+					console.log(blue+'compressing... '+yellow+fi.relative+sp+fi.base+reset);
+					var _ = exec('optipng -o1 -keep -out '+target+' '+filename, function(err, stdout, stderr) {
+						if (err) {
+							showError(err,fi);
+							return;
+						} else {
+							fs.unlink(target+'.bak');
+							console.log(blue+'compressed: '+yellow+fi.relative+sp+fi.base+reset);
+						}
+					});
+				}catch(e){
+					showError(err,fi);
+					return;
+				}
 				break;
 			case 'html':
+			case 'htm':
+				try{
+					var html = htmlminifier.minify(content, {
+						removeComments: true,
+						removeCommentsFromCDATA: true,
+						collapseWhitespace: true,
+						collapseBooleanAttributes: true,
+						removeAttributeQuotes: true,
+						removeEmptyAttributes: true
+					});
+
+					createDirs(fi);
+
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.html',html);
+					console.log(cyan+'compressed: '+yellow+fi.relative+sp+fi.name+'.html'+reset);
+				}catch(e){
+					showError(e,fi);
+					return;
+				}
 				break;
 			default:
-				createDirs(fi);
-				cpFileSync(filename, www+sp+fi.relative+sp+fi.base);
-				console.log(cyan+'copied: '+yellow+fi.relative+sp+fi.base+reset);
+				try{
+					createDirs(fi);
+					cpFileSync(filename, www+sp+fi.relative+sp+fi.base);
+					console.log(cyan+'copied: '+yellow+fi.relative+sp+fi.base+reset);
+				}catch(e){
+					showError(e,fi);
+					return;
+				}
 				break;
 		}
 	}
