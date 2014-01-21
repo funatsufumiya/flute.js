@@ -9,8 +9,13 @@ var fs = require('fs'),
 	jade = require('jade'),
 	path = require('path'),
 	ejs = require('ejs'),
-	marked = require('marked');
-
+	marked = require('marked'),
+	stylus = require('stylus'),
+	sass = require('node-sass'),
+	coffee = require('coffee-script'),
+	uglify = require('uglify-js'),
+	less = require('less'),
+	yuicompressor = require('yuicompressor');
 
 // Fundamentals =============================
 
@@ -25,6 +30,23 @@ var magenta = '\x1b[35m';
 var cyan = '\x1b[36m';
 var reset = '\x1b[39;49m';
 var is_win = /^win/.test(process.platform);
+var sp = (is_win)? '\\' : '/'; 
+
+var showError = function(e,fi){
+	console.error(red+'\n'+e);
+	console.error('on ' + fi.relative + sp + fi.base +'\n'+reset);
+}
+
+var createDirs = function(fi){
+	var dirs = fi.relative.split(sp);
+	var dirslen = dirs.length
+	for(var i=0;i<dirslen;i++){
+		var dir = dirs.slice(0,i+1).join(sp);
+		if(!fs.existsSync(www+sp+dir)){
+			fs.mkdirSync(www+sp+dir);
+		}
+	}
+}
 
 var cpFileSync = function(from, to){
 	fs.createReadStream(from).pipe(fs.createWriteStream(to));
@@ -35,7 +57,7 @@ var rmdirRecurSync = function(path) {
     if( fs.existsSync(path) ) {
         files = fs.readdirSync(path);
         files.forEach(function(file,index){
-            var curPath = path + "/" + file;
+            var curPath = path + sp + file;
             if(fs.statSync(curPath).isDirectory()) { // recurse
                 rmdirRecurSync(curPath);
             } else { // delete file
@@ -47,12 +69,7 @@ var rmdirRecurSync = function(path) {
 };
 
 var fileinfo = function(s,root){
-	var t = '';
-	if(is_win){
-		t = s.split('\\');
-	}else{
-		t = s.split('/');
-	}
+	var t = s.split(sp);
 
 	var base = '';
 	var parent = '';
@@ -72,15 +89,25 @@ var fileinfo = function(s,root){
 		has_ext = base.indexOf('.') > -1;
 	}
 	var ext = '';
+	var subext = '';
 	var name = '';
 	if(has_ext){
 		ext = base.replace(/.*\.(.{0,6})$/, '$1');
+		subext = base.replace(/.*\.(.{0,6})\.(.{0,6})$/, '$1');
+		if(subext.indexOf('.') < 0){
+			subext = '';
+		}
 		extlen = ext.length+1;
 		name = base.slice(0,-extlen);
 	}
-	var parent_path = s.replace(/(.+)\/.*?$/, '$1');
+	var parent_path;
+	if(is_win){
+		parent_path = s.replace(/(.+)\\.*?$/, '$1');
+	}else{
+		parent_path = s.replace(/(.+)\/.*?$/, '$1');
+	}
 	var relative = parent_path.replace(root,'');
-	if(relative[0] == '/'){
+	if(relative[0] == sp){
 		relative = relative.slice(1);
 	}
 	var dat = {
@@ -89,6 +116,7 @@ var fileinfo = function(s,root){
 		hidden: hidden,
 		has_ext: has_ext,
 		ext: ext,
+		subext: subext,
 		parent_folder: parent_folder,
 		parent_path: parent_path,
 		relative: relative
@@ -111,14 +139,14 @@ var fl_compile = function(filename){
 	}
 
 	if(fi.ext != 'json'){
-		var dirs = fi.relative.split('/');
+		var dirs = fi.relative.split(sp);
 		var dirslen = dirs.length;
 		for(var i=0;i<dirslen;i++){
 			if( dirs[0][0] == '_' 
 				|| dirs[0][0] == '.' 
 				|| fi.base[0] == '_'
 				|| fi.base[0] == '.'){
-				console.log(cyan+'skipped: '+yellow+fi.relative+'/'+fi.base+reset);
+				console.log(magenta+'skipped: '+magenta+fi.relative+sp+fi.base+reset);
 				return;
 			}
 		}
@@ -135,20 +163,27 @@ var fl_compile = function(filename){
 			case 'sass':
 			case 'scss':
 			case 'less':
+			case 'js':
+			case 'css':
+			case 'png':
+			case 'jpg':
+			case 'jpeg':
+			case 'gif':
+			case 'html':
 				var data = fs.readFileSync(filename,'utf8');
 				content = data.toString('utf8');
 				break;
 		}
 
 		switch(fi.ext){
+
 			case 'json':
 				if(fi.base == '_data.json'){
 					try{
 						var obj = JSON.parse(content);
 					}catch(e){
-						console.error(red+'\n'+e);
-						console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
-						exit();
+						showError(e,fi);
+						return;
 					}
 
 					if(!globals.hasOwnProperty('public')){
@@ -161,8 +196,7 @@ var fl_compile = function(filename){
 					try{
 						var obj = JSON.parse(content);
 					}catch(e){
-						console.error(red+'\n'+e);
-						console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+						showError(e,fi);
 						return;
 					}
 
@@ -174,30 +208,42 @@ var fl_compile = function(filename){
 				}
 
 				fs.writeFileSync(json_tmp_path, JSON.stringify(globals));
-
 				break;
+
 			case 'jade':
-				var dirs = fi.relative.split('/');
-				var dirslen = dirs.length
-				for(var i=0;i<dirslen;i++){
-					var dir = dirs.slice(0,i+1).join('/');
-					if(!fs.existsSync(www+'/'+dir)){
-						fs.mkdirSync(www+'/'+dir);
-					}
-				}
+				createDirs(fi);
+
 				var html;
 				try{
 					html = jade.renderFile(filename,globals);
 				}catch(e){
-					console.error(red+'\n'+e);
-					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					showError(e,fi);
 					return;
 				}
-				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
-				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+				
+				if(fi.subext){
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.'+fi.subext,html);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.'+fi.subext+reset);
+				}else{
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.html',html);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.html'+reset);
+				}
 				break;
+
 			case 'styl':
+				stylus.render(content, { filename: filename }, function(e, css){
+					if(e){
+						showError(e,fi);
+						return;
+					}
+
+					createDirs(fi);
+
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.css',css);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
+				});
 				break;
+
 			case 'md':
 				marked.setOptions({
 					breaks: false
@@ -207,63 +253,115 @@ var fl_compile = function(filename){
 				try{
 					html = marked(content);
 				}catch(e){
-					console.error(red+'\n'+e);
-					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					showError(e,fi);
 					return;
 				}
 
-				var dirs = fi.relative.split('/');
-				var dirslen = dirs.length
-				for(var i=0;i<dirslen;i++){
-					var dir = dirs.slice(0,i+1).join('/');
-					if(!fs.existsSync(www+'/'+dir)){
-						fs.mkdirSync(www+'/'+dir);
-					}
-				}
+				createDirs(fi);
 
-				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
-				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+				fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.html',html);
+				console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.html'+reset);
 				break;
+
 			case 'ejs':
 				globals['filename'] = filename;
 				var html;
 				try{
 					html = ejs.render(content,globals);
 				}catch(e){
-					console.error(red+'\n'+e);
-					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					showError(e,fi);
 					return;
 				}
-				var dirs = fi.relative.split('/');
-				var dirslen = dirs.length
-				for(var i=0;i<dirslen;i++){
-					var dir = dirs.slice(0,i+1).join('/');
-					if(!fs.existsSync(www+'/'+dir)){
-						fs.mkdirSync(www+'/'+dir);
-					}
+
+				createDirs(fi);
+
+				if(fi.subext){
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.'+fi.subext,html);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.'+fi.subext+reset);
+				}else{
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.html',html);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.html'+reset);
 				}
-				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
-				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+
 				break;
+
 			case 'coffee':
+				try{
+					var _js = coffee.compile(content);
+					var target_js = www+sp+fi.relative+sp+fi.name+'.js';
+
+					createDirs(fi);
+					fs.writeFileSync(target_js,_js);
+
+					var js = uglify.minify(target_js).code;
+
+					fs.writeFileSync(target_js,js);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+				}catch(e){
+					showError(e,fi);
+					return;
+				}
+
 				break;
+
 			case 'sass':
-				break;
 			case 'scss':
+				try{
+					var css = sass.renderSync({
+						data: content,
+						outputStyle: 'compressed'
+					});
+
+					createDirs(fi);
+
+					fs.writeFileSync(www+sp+fi.relative+sp+fi.name+'.css',css);
+					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
+				}catch(e){
+					showError(e,fi);
+					return;
+				}
+
 				break;
 			case 'less':
+				less.render(content, function (e, _css) {
+					var target_css = www+sp+fi.relative+sp+fi.name+'.css';
+				    createDirs(fi);
+
+				    fs.writeFileSync(target_css,_css);
+
+				    yuicompressor.compress(target_css, {
+					    charset: 'utf8',
+					    type: 'css',
+					    nomunge: true
+					}, function(e, data, extra) {
+						if(e){
+							showError(e,fi);
+							return;
+						}else{
+							fs.writeFileSync(target_css,data);
+							console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
+						} 
+					});
+
+				});
+				break;
+			case 'js':
+				break;
+			case 'css':
+				break;
+			case 'png':
+				break;
+			case 'jpg':
+			case 'jpeg':
+				break;
+			case 'gif':
+				break;
+			case 'html':
 				break;
 			default:
-				var dirs = fi.relative.split('/');
-				var dirslen = dirs.length
-				for(var i=0;i<dirslen;i++){
-					var dir = dirs.slice(0,i+1).join('/');
-					if(!fs.existsSync(www+'/'+dir)){
-						fs.mkdirSync(www+'/'+dir);
-					}
-				}
-				cpFileSync(filename, www+'/'+fi.relative+'/'+fi.base);
-				console.log(green+'copied: '+yellow+fi.relative+'/'+fi.base+reset);
+				createDirs(fi);
+				cpFileSync(filename, www+sp+fi.relative+sp+fi.base);
+				console.log(cyan+'copied: '+yellow+fi.relative+sp+fi.base+reset);
 				break;
 		}
 	}
@@ -271,7 +369,7 @@ var fl_compile = function(filename){
 
 var root = process.cwd();
 var args = process.argv.slice(2);
-var www = root + '/www';
+var www = root+sp+'www';
 
 if(fs.existsSync(www)){
 	rmdirRecurSync(www);
@@ -289,7 +387,7 @@ var walker = walk.walk(root, { recursive: true });
 var reserved = [];
 
 walker.on('file', function(_root, _stat, _next) {
-    var filename = (_root + '/' + _stat.name);
+    var filename = (_root+sp+_stat.name);
     var fi = fileinfo(filename);
 
     if(fi.has_ext && fi.ext == 'json'){
