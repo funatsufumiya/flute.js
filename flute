@@ -12,8 +12,7 @@ var fs = require('fs'),
 	marked = require('marked'),
 	stylus = require('stylus'),
 	sass = require('node-sass'),
-	coffee = require('coffee-script'),
-	uglify = require('uglify-js'),
+	coffee = require('coffee-script'),=
 	less = require('less'),
 	yuicompressor = require('yuicompressor'),
 	htmlminifier = require('html-minifier'),
@@ -227,7 +226,12 @@ var fl_compile = function(filename){
 
 				var _path = fi.relative.split(sp);
 				_path.push(fi.name);
+
 				globals.current = {path:_path, source:fi.name};
+				globals.partial = function(s){
+					var text = fs.readFileSync(fi.relative + s);
+					return text;
+				}
 
 				var html;
 				try{
@@ -285,6 +289,10 @@ var fl_compile = function(filename){
 
 				globals['filename'] = filename;
 				globals.current = {path:_path, source:fi.name};
+				globals.partial = function(s){
+					var text = fs.readFileSync(fi.relative + s);
+					return text;
+				}
 
 				var html;
 				try{
@@ -368,6 +376,8 @@ var fl_compile = function(filename){
 			case 'js':
 				try{
 					var target = www+sp+fi.relative+sp+fi.base;
+					createDirs(fi);
+
 					target = target.replace('//','/');
 
 					cpFileSync(filename,target);
@@ -380,6 +390,24 @@ var fl_compile = function(filename){
 				}
 				break;
 			case 'css':
+				var target_css = www+sp+fi.relative+sp+fi.base;
+			    createDirs(fi);
+
+			    cpFileSync(filename,target);
+
+			    yuicompressor.compress(target_css, {
+				    charset: 'utf8',
+				    type: 'css',
+				    nomunge: true
+				}, function(e, data, extra) {
+					if(e){
+						showError(e,fi);
+						return;
+					}else{
+						fs.writeFileSync(target_css,data);
+						console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
+					} 
+				});
 				break;
 			case 'jpg':
 			case 'jpeg':
@@ -500,9 +528,6 @@ walker.on('end', function(){
 	for(var i=0;i<reslen;i++){
 	    fl_compile(reserved[i]);
 	}
-
-	var static = require('node-static');
-
 
 	// static server
 	console.log('\n' + reset + 'Server started on http://localhost:9000/' + reset +'\n');
