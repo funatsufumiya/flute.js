@@ -12,7 +12,7 @@ var fs = require('fs'),
 	marked = require('marked'),
 	stylus = require('stylus'),
 	sass = require('node-sass'),
-	coffee = require('coffee-script'),=
+	coffee = require('coffee-script'),
 	less = require('less'),
 	yuicompressor = require('yuicompressor'),
 	htmlminifier = require('html-minifier'),
