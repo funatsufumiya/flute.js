@@ -21,7 +21,6 @@ var fs = require('fs'),
 
 // Fundamentals =============================
 
-var json_tmp_path = '/tmp/__globals.json';
 var exit = function(){ process.kill(); }
 var black = '\x1b[30m';
 var red = '\x1b[31m';
@@ -135,14 +134,12 @@ var fileinfo = function(s,root){
 	return dat;
 }
 
+global.globals = {current:{}};
+
 var fl_compile = function(filename){
 	var fi = fileinfo(filename,root);
 	var dir = fi.relative;
 	var content = '';
-	var globals = {current:{}};
-	if(fs.existsSync(json_tmp_path)){
-		globals = JSON.parse(fs.readFileSync(json_tmp_path));
-	}
 
 	if(fi.relative.slice(0,3) == 'www'){
 		return;
@@ -197,12 +194,12 @@ var fl_compile = function(filename){
 						return;
 					}
 
-					if(!globals.hasOwnProperty('public')){
-						globals['public'] = {};
+					if(!global.globals.hasOwnProperty('public')){
+						global.globals['public'] = {};
 					}
 
-					globals.public[dir] = {};
-					globals.public[dir]['_data'] = obj;
+					global.globals.public[dir] = {};
+					global.globals.public[dir]['_data'] = obj;
 				}else if(fi.base == '_flute.json'){
 					try{
 						var obj = JSON.parse(content);
@@ -211,14 +208,13 @@ var fl_compile = function(filename){
 						return;
 					}
 
-					if(!globals.hasOwnProperty('globals')){
-						globals['globals'] = {};
+					if(!global.globals.hasOwnProperty('globals')){
+						global.globals['globals'] = {};
 					}
 
-					globals.globals = obj.globals;
+					global.globals.globals = obj.globals;
 				}
 
-				fs.writeFileSync(json_tmp_path, JSON.stringify(globals));
 				break;
 
 			case 'jade':
@@ -227,15 +223,15 @@ var fl_compile = function(filename){
 				var _path = fi.relative.split(sp);
 				_path.push(fi.name);
 
-				globals.current = {path:_path, source:fi.name};
-				globals.partial = function(s){
+				global.globals.current = {path:_path, source:fi.name};
+				global.globals.partial = function(s){
 					var text = fs.readFileSync(fi.relative + s);
 					return text;
 				}
 
 				var html;
 				try{
-					html = jade.renderFile(filename,globals);
+					html = jade.renderFile(filename,global.globals);
 				}catch(e){
 					showError(e,fi);
 					return;
@@ -287,16 +283,16 @@ var fl_compile = function(filename){
 				var _path = fi.relative.split(sp);
 				_path.push(fi.name);
 
-				globals['filename'] = filename;
-				globals.current = {path:_path, source:fi.name};
-				globals.partial = function(s){
+				global.globals['filename'] = filename;
+				global.globals.current = {path:_path, source:fi.name};
+				global.globals.partial = function(s){
 					var text = fs.readFileSync(fi.relative + s);
 					return text;
 				}
 
 				var html;
 				try{
-					html = ejs.render(content,globals);
+					html = ejs.render(content,global.globals);
 				}catch(e){
 					showError(e,fi);
 					return;
@@ -375,7 +371,7 @@ var fl_compile = function(filename){
 							showError(e,fi);
 							return;
 						}else{
-							fs.writeFileSync(target,data);
+							fs.writeFileSync(target_css,data);
 							console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
 						} 
 					});
@@ -412,7 +408,7 @@ var fl_compile = function(filename){
 				var target_css = www+sp+fi.relative+sp+fi.base;
 			    createDirs(fi);
 
-			    cpFileSync(filename,target);
+			    cpFileSync(filename,target_css);
 
 			    yuicompressor.compress(target_css, {
 				    charset: 'utf8',
@@ -517,10 +513,6 @@ if(fs.existsSync(www)){
 }
 
 fs.mkdirSync(www);
-
-if(fs.existsSync(json_tmp_path)){
-	fs.unlinkSync(json_tmp_path);
-}
 
 // Main =============================
 
