@@ -1,0 +1,315 @@
+#!/usr/bin/env node
+
+
+// Requirements =============================
+
+var fs = require('fs'),
+	watch = require('node-watch'),
+	walk = require('walk'),
+	jade = require('jade'),
+	path = require('path'),
+	ejs = require('ejs'),
+	marked = require('marked');
+
+
+// Fundamentals =============================
+
+var json_tmp_path = '/tmp/__globals.json';
+var exit = function(){ process.kill(); }
+var black = '\x1b[30m';
+var red = '\x1b[31m';
+var green = '\x1b[32m';
+var yellow = '\x1b[33m';
+var blue = '\x1b[34m';
+var magenta = '\x1b[35m';
+var cyan = '\x1b[36m';
+var reset = '\x1b[39;49m';
+var is_win = /^win/.test(process.platform);
+
+var cpFileSync = function(from, to){
+	fs.createReadStream(from).pipe(fs.createWriteStream(to));
+}
+
+var rmdirRecurSync = function(path) {
+    var files = [];
+    if( fs.existsSync(path) ) {
+        files = fs.readdirSync(path);
+        files.forEach(function(file,index){
+            var curPath = path + "/" + file;
+            if(fs.statSync(curPath).isDirectory()) { // recurse
+                rmdirRecurSync(curPath);
+            } else { // delete file
+                fs.unlinkSync(curPath);
+            }
+        });
+        fs.rmdirSync(path);
+    }
+};
+
+var fileinfo = function(s,root){
+	var t = '';
+	if(is_win){
+		t = s.split('\\');
+	}else{
+		t = s.split('/');
+	}
+
+	var base = '';
+	var parent = '';
+	if(t[t.length-1] == ''){
+		base =  t[t.length-2];
+		parent_folder = t[t.length-3];
+	}else{
+		base = t[t.length-1];
+		parent_folder = t[t.length-2];
+	}
+
+	var hidden = (base[0] == '.');
+	var has_ext = false;
+	if(hidden){
+		has_ext = base.slice(1).indexOf('.') > -1;
+	}else{
+		has_ext = base.indexOf('.') > -1;
+	}
+	var ext = '';
+	var name = '';
+	if(has_ext){
+		ext = base.replace(/.*\.(.{0,6})$/, '$1');
+		extlen = ext.length+1;
+		name = base.slice(0,-extlen);
+	}
+	var parent_path = s.replace(/(.+)\/.*?$/, '$1');
+	var relative = parent_path.replace(root,'');
+	if(relative[0] == '/'){
+		relative = relative.slice(1);
+	}
+	var dat = {
+		name: name,
+		base: base,
+		hidden: hidden,
+		has_ext: has_ext,
+		ext: ext,
+		parent_folder: parent_folder,
+		parent_path: parent_path,
+		relative: relative
+	};
+
+	return dat;
+}
+
+var fl_compile = function(filename){
+	var fi = fileinfo(filename,root);
+	var dir = fi.relative;
+	var content = '';
+	var globals = {};
+	if(fs.existsSync(json_tmp_path)){
+		globals = JSON.parse(fs.readFileSync(json_tmp_path));
+	}
+
+	if(fi.relative.slice(0,3) == 'www'){
+		return;
+	}
+
+	if(fi.ext != 'json'){
+		var dirs = fi.relative.split('/');
+		var dirslen = dirs.length;
+		for(var i=0;i<dirslen;i++){
+			if( dirs[0][0] == '_' 
+				|| dirs[0][0] == '.' 
+				|| fi.base[0] == '_'
+				|| fi.base[0] == '.'){
+				console.log(cyan+'skipped: '+yellow+fi.relative+'/'+fi.base+reset);
+				return;
+			}
+		}
+	}
+
+	if(fi.has_ext){
+		switch(fi.ext){
+			case 'json':
+			case 'jade':
+			case 'styl':
+			case 'md':
+			case 'ejs':
+			case 'coffee':
+			case 'sass':
+			case 'scss':
+			case 'less':
+				var data = fs.readFileSync(filename,'utf8');
+				content = data.toString('utf8');
+				break;
+		}
+
+		switch(fi.ext){
+			case 'json':
+				if(fi.base == '_data.json'){
+					try{
+						var obj = JSON.parse(content);
+					}catch(e){
+						console.error(red+'\n'+e);
+						console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+						exit();
+					}
+
+					if(!globals.hasOwnProperty('public')){
+						globals['public'] = {};
+					}
+
+					globals.public[dir] = {};
+					globals.public[dir]['_data'] = obj;
+				}else if(fi.base == '_flute.json'){
+					try{
+						var obj = JSON.parse(content);
+					}catch(e){
+						console.error(red+'\n'+e);
+						console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+						return;
+					}
+
+					if(!globals.hasOwnProperty('globals')){
+						globals['globals'] = {};
+					}
+
+					globals.globals = obj.globals;
+				}
+
+				fs.writeFileSync(json_tmp_path, JSON.stringify(globals));
+
+				break;
+			case 'jade':
+				var dirs = fi.relative.split('/');
+				var dirslen = dirs.length
+				for(var i=0;i<dirslen;i++){
+					var dir = dirs.slice(0,i+1).join('/');
+					if(!fs.existsSync(www+'/'+dir)){
+						fs.mkdirSync(www+'/'+dir);
+					}
+				}
+				var html;
+				try{
+					html = jade.renderFile(filename,globals);
+				}catch(e){
+					console.error(red+'\n'+e);
+					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					return;
+				}
+				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
+				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+				break;
+			case 'styl':
+				break;
+			case 'md':
+				marked.setOptions({
+					breaks: false
+				});
+
+				var html;
+				try{
+					html = marked(content);
+				}catch(e){
+					console.error(red+'\n'+e);
+					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					return;
+				}
+
+				var dirs = fi.relative.split('/');
+				var dirslen = dirs.length
+				for(var i=0;i<dirslen;i++){
+					var dir = dirs.slice(0,i+1).join('/');
+					if(!fs.existsSync(www+'/'+dir)){
+						fs.mkdirSync(www+'/'+dir);
+					}
+				}
+
+				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
+				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+				break;
+			case 'ejs':
+				globals['filename'] = filename;
+				var html;
+				try{
+					html = ejs.render(content,globals);
+				}catch(e){
+					console.error(red+'\n'+e);
+					console.error('on ' + fi.relative + '/' + fi.base +'\n'+reset);
+					return;
+				}
+				var dirs = fi.relative.split('/');
+				var dirslen = dirs.length
+				for(var i=0;i<dirslen;i++){
+					var dir = dirs.slice(0,i+1).join('/');
+					if(!fs.existsSync(www+'/'+dir)){
+						fs.mkdirSync(www+'/'+dir);
+					}
+				}
+				fs.writeFileSync(www+'/'+fi.relative+'/'+fi.name+'.html',html);
+				console.log(green+'compiled: '+yellow+fi.relative+'/'+fi.name+'.html'+reset);
+				break;
+			case 'coffee':
+				break;
+			case 'sass':
+				break;
+			case 'scss':
+				break;
+			case 'less':
+				break;
+			default:
+				var dirs = fi.relative.split('/');
+				var dirslen = dirs.length
+				for(var i=0;i<dirslen;i++){
+					var dir = dirs.slice(0,i+1).join('/');
+					if(!fs.existsSync(www+'/'+dir)){
+						fs.mkdirSync(www+'/'+dir);
+					}
+				}
+				cpFileSync(filename, www+'/'+fi.relative+'/'+fi.base);
+				console.log(green+'copied: '+yellow+fi.relative+'/'+fi.base+reset);
+				break;
+		}
+	}
+}
+
+var root = process.cwd();
+var args = process.argv.slice(2);
+var www = root + '/www';
+
+if(fs.existsSync(www)){
+	rmdirRecurSync(www);
+}
+
+fs.mkdirSync(www);
+
+if(fs.existsSync(json_tmp_path)){
+	fs.unlinkSync(json_tmp_path);
+}
+
+// Main =============================
+
+var walker = walk.walk(root, { recursive: true });
+var reserved = [];
+
+walker.on('file', function(_root, _stat, _next) {
+    var filename = (_root + '/' + _stat.name);
+    var fi = fileinfo(filename);
+
+    if(fi.has_ext && fi.ext == 'json'){
+    	fl_compile(filename);
+	}else{
+		reserved.push(filename);
+	}
+
+    _next();
+});
+
+walker.on('end', function(){
+
+	var reslen = reserved.length;
+
+	for(var i=0;i<reslen;i++){
+	    fl_compile(reserved[i]);
+	}
+
+	watch(root, {recursive:true}, function(filename){
+		fl_compile(filename);
+	});
+});
