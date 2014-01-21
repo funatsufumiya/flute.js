@@ -17,8 +17,8 @@ var fs = require('fs'),
 	less = require('less'),
 	yuicompressor = require('yuicompressor'),
 	htmlminifier = require('html-minifier'),
-	gm = require('gm'),
-	exec = require('child_process').exec;
+	exec = require('child_process').exec,
+	http = require('node-static');
 
 // Fundamentals =============================
 
@@ -491,6 +491,19 @@ walker.on('end', function(){
 	for(var i=0;i<reslen;i++){
 	    fl_compile(reserved[i]);
 	}
+
+	var static = require('node-static');
+
+
+	// static server
+	console.log('\n' + reset + 'Server started on http://localhost:9000/' + reset +'\n');
+
+	var file = new http.Server('./www');
+	require('http').createServer(function (request, response) {
+	    request.addListener('end', function () {
+	        file.serve(request, response);
+	    }).resume();
+	}).listen(9000);
 
 	watch(root, {recursive:true}, function(filename){
 		fl_compile(filename);
