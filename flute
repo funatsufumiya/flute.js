@@ -140,7 +140,7 @@ var fl_compile = function(filename){
 	var fi = fileinfo(filename,root);
 	var dir = fi.relative;
 	var content = '';
-	var globals = {};
+	var globals = {current:{}};
 	if(fs.existsSync(json_tmp_path)){
 		globals = JSON.parse(fs.readFileSync(json_tmp_path));
 	}
@@ -225,6 +225,10 @@ var fl_compile = function(filename){
 			case 'jade':
 				createDirs(fi);
 
+				var _path = fi.relative.split(sp);
+				_path.push(fi.name);
+				globals.current = {path:_path, source:fi.name};
+
 				var html;
 				try{
 					html = jade.renderFile(filename,globals);
@@ -276,7 +280,12 @@ var fl_compile = function(filename){
 				break;
 
 			case 'ejs':
+				var _path = fi.relative.split(sp);
+				_path.push(fi.name);
+
 				globals['filename'] = filename;
+				globals.current = {path:_path, source:fi.name};
+
 				var html;
 				try{
 					html = ejs.render(content,globals);
@@ -506,6 +515,26 @@ walker.on('end', function(){
 	}).listen(9000);
 
 	watch(root, {recursive:true}, function(filename){
+		var fi = fileinfo(filename);
+		if(fi.base == '_data.json' || fi.base == '_flute.json'
+			|| fi.ext == 'jade' || fi.ext == 'ejs'){
+			walker = walk.walk(root, { recursive: true });
+
+			walker.on('file', function(_root, _stat, _next) {
+			    var filename = (_root+sp+_stat.name);
+			    var fi = fileinfo(filename);
+
+			    if(fi.has_ext && (fi.ext == 'jade' || fi.ext == 'ejs')){
+			    	fl_compile(filename);
+				}
+
+			    _next();
+			});
+
+			walker.on('end', function(){
+			});
+		}
+
 		fl_compile(filename);
 	});
 });
