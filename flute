@@ -317,15 +317,24 @@ var fl_compile = function(filename){
 			case 'coffee':
 				try{
 					var _js = coffee.compile(content);
-					var target_js = www+sp+fi.relative+sp+fi.name+'.js';
+					var target = www+sp+fi.relative+sp+fi.name+'.js';
 
 					createDirs(fi);
-					fs.writeFileSync(target_js,_js);
+					fs.writeFileSync(target,_js);
 
-					var js = uglify.minify(target_js).code;
-
-					fs.writeFileSync(target_js,js);
-					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+					yuicompressor.compress(target, {
+					    charset: 'utf8',
+					    type: 'js',
+					    nomunge: true
+					}, function(e, data, extra) {
+						if(e){
+							showError(e,fi);
+							return;
+						}else{
+							fs.writeFileSync(target,data);
+							console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+						} 
+					});
 				}catch(e){
 					showError(e,fi);
 					return;
@@ -366,11 +375,10 @@ var fl_compile = function(filename){
 							showError(e,fi);
 							return;
 						}else{
-							fs.writeFileSync(target_css,data);
+							fs.writeFileSync(target,data);
 							console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.css'+reset);
 						} 
 					});
-
 				});
 				break;
 			case 'js':
@@ -381,9 +389,20 @@ var fl_compile = function(filename){
 					target = target.replace('//','/');
 
 					cpFileSync(filename,target);
-					var js = uglify.minify(target).code;
-					fs.writeFileSync(target,js);
-					console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+
+					yuicompressor.compress(target, {
+					    charset: 'utf8',
+					    type: 'js',
+					    nomunge: true
+					}, function(e, data, extra) {
+						if(e){
+							showError(e,fi);
+							return;
+						}else{
+							fs.writeFileSync(target_css,data);
+							console.log(green+'compiled: '+yellow+fi.relative+sp+fi.name+'.js'+reset);
+						} 
+					});
 				}catch(e){
 					showError(e,fi);
 					return;
