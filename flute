@@ -446,7 +446,7 @@ var fl_compile = function(filename){
 						}
 					});
 				}catch(e){
-					showError(err,fi);
+					showError(e,fi);
 					return;
 				}
 				break;
