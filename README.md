@@ -5,6 +5,7 @@ harp.js (harpjs.com) compatible node.js library
 
 ## Dependencies
 
+- node.js
 - optipng
 - jpegoptim
 
